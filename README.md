@@ -8,7 +8,7 @@ Deploy: Render.
 1. `python -m venv .venv && source .venv/bin/activate`
 2. `pip install -r requirements.txt`
 3. Copy `.env.example` → `.env` and fill values.
-4. Run: `uvicorn app.main:app --reload --port 8000`
+4. Run: `uvicorn app.main:app --reload --host 0.0.0.0 --port ${PORT:-8000}`
 
 ## Env
 - `SUPABASE_URL` (e.g. https://<proj>.supabase.co)
