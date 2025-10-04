@@ -33,8 +33,8 @@ class StateStore:
         return data
 
 def api_base() -> str:
-    return ("https://sandbox-quickbooks.api.intuit.com"
-            if settings.QBO_ENV == "sandbox"
+    return ("https://quickbooks.api.intuit.com"
+            if settings.QBO_ENV == "production"
             else "https://quickbooks.api.intuit.com")
 
 # ---------------------- OAuth helpers ------------------------------

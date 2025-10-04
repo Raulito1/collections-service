@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     QBO_CLIENT_ID: str
     QBO_CLIENT_SECRET: str
     QBO_REDIRECT_URL: str           # e.g. http://localhost:8000/auth/quickbooks/callback
-    QBO_ENV: str = "sandbox"        # or "production"
+    QBO_ENV: str = "production"        # or "production"
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
