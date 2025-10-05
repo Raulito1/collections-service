@@ -80,6 +80,18 @@ def _bucket_for_days(days: int) -> BucketKey:
     return "91+"
 
 
+def _clean_customer_name(raw: str) -> str:
+    """Normalize formatting and remove trailing QuickBooks suffixes such as ':COMP'."""
+    cleaned = raw.split(":", 1)[0]
+    collapsed = " ".join(cleaned.split()).strip()
+    return collapsed or raw.strip()
+
+
+def _customer_key(name: str) -> str:
+    """Canonicalize customer names for aggregation."""
+    return " ".join(name.split()).casefold()
+
+
 def _extract_transactions(report: Dict[str, Any]) -> Iterable[AgingTransaction]:
     header = report.get("Header", {})
     report_date: Optional[datetime] = None
@@ -113,7 +125,8 @@ def _extract_transactions(report: Dict[str, Any]) -> Iterable[AgingTransaction]:
                 return data[position].get("value")
 
             txn_type = get_col("txn_type") or ""
-            customer = get_col("cust_name") or "Unknown"
+            customer_raw = get_col("cust_name") or "Unknown"
+            customer = _clean_customer_name(customer_raw)
             doc_num = get_col("doc_num")
             open_balance = _safe_decimal(get_col("subt_open_bal") or 0)
             if open_balance == 0:
@@ -143,12 +156,13 @@ def simplify_ar_aging(report: Dict[str, Any]) -> Dict[str, Any]:
     customers: Dict[str, Dict[str, Any]] = {}
 
     for txn in _extract_transactions(report):
+        key = _customer_key(txn.customer)
         record = customers.setdefault(
-            txn.customer,
+            key,
             {
                 "customer": txn.customer,
                 "total_balance": Decimal("0"),
-                "buckets": {key: Decimal("0") for key in BUCKET_ORDER},
+                "buckets": {bucket: Decimal("0") for bucket in BUCKET_ORDER},
                 "positive_transactions": [],
                 "credits": Decimal("0"),
             },
@@ -161,6 +175,10 @@ def simplify_ar_aging(report: Dict[str, Any]) -> Dict[str, Any]:
             record["positive_transactions"].append(txn)
         else:
             record["credits"] += txn.amount
+
+        # prefer human-friendly casing from the first positive transaction
+        if record["customer"] != txn.customer and record["positive_transactions"]:
+            record["customer"] = record["positive_transactions"][0].customer
 
     output: List[Dict[str, Any]] = []
 
