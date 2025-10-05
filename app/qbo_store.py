@@ -81,14 +81,13 @@ def _select_customer_sync(supabase: Client, external_ref: str):
 
 
 def _insert_customer_sync(supabase: Client, payload: Dict[str, Any]):
-    return (
+    builder = (
         supabase
         .table(CUSTOMERS_TABLE)
         .insert(payload)
-        .select("id")
-        .single()
         .execute()
     )
+    return builder
 
 
 def _update_customer_sync(supabase: Client, customer_id: str, payload: Dict[str, Any]):
@@ -118,7 +117,7 @@ async def get_or_create_customer_id(supabase: Client, external_ref: str, name: s
         if record.get("name") != name:
             await asyncio.to_thread(_update_customer_sync, supabase, record["id"], {"name": name})
         return record["id"]
-    created = await asyncio.to_thread(
+    await asyncio.to_thread(
         _insert_customer_sync,
         supabase,
         {
@@ -130,14 +129,12 @@ async def get_or_create_customer_id(supabase: Client, external_ref: str, name: s
             "escalation": False,
         },
     )
-    if not created or created.data is None:
-        raise RuntimeError("Failed to create customer record")
-    data = created.data
-    if isinstance(data, list):
-        data = data[0] if data else None
-    if not data or "id" not in data:
-        raise RuntimeError("Failed to create customer record")
-    return data["id"]
+    existing_after = await asyncio.to_thread(_select_customer_sync, supabase, external_ref)
+    if existing_after and existing_after.data:
+        record = existing_after.data[0] if isinstance(existing_after.data, list) else existing_after.data
+        if record and record.get("id"):
+            return record["id"]
+    raise RuntimeError("Failed to create customer record")
 
 
 def _fetch_customers_metadata_sync(supabase: Client, external_refs: Sequence[str]):
