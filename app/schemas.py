@@ -1,4 +1,4 @@
-from pydantic import BaseModel, root_validator
+from pydantic import BaseModel, model_validator
 from datetime import date
 from typing import Optional
 from uuid import UUID
@@ -25,8 +25,8 @@ class CustomerStatusUpdate(BaseModel):
     follow_up: Optional[bool] = None
     escalation: Optional[bool] = None
 
-    @root_validator
-    def _validate_identifier(cls, values):
-        if not values.get("customer_id") and not values.get("external_ref"):
+    @model_validator(mode="after")
+    def _validate_identifier(cls, model: "CustomerStatusUpdate"):
+        if not model.customer_id and not model.external_ref:
             raise ValueError("customer_id or external_ref is required")
-        return values
+        return model
