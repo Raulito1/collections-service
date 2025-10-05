@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from supabase import Client
 
@@ -73,7 +73,7 @@ def _select_customer_sync(supabase: Client, external_ref: str):
     return (
         supabase
         .table(CUSTOMERS_TABLE)
-        .select("id")
+        .select("id,name")
         .eq("external_ref", external_ref)
         .maybe_single()
         .execute()
@@ -91,16 +91,54 @@ def _insert_customer_sync(supabase: Client, payload: Dict[str, Any]):
     )
 
 
+def _update_customer_sync(supabase: Client, customer_id: str, payload: Dict[str, Any]):
+    return (
+        supabase
+        .table(CUSTOMERS_TABLE)
+        .update(payload)
+        .eq("id", customer_id)
+        .execute()
+    )
+
+
 async def get_or_create_customer_id(supabase: Client, external_ref: str, name: str) -> str:
     existing = await asyncio.to_thread(_select_customer_sync, supabase, external_ref)
     if existing.data:
-        return existing.data["id"]
+        record = existing.data
+        if record.get("name") != name:
+            await asyncio.to_thread(_update_customer_sync, supabase, record["id"], {"name": name})
+        return record["id"]
     created = await asyncio.to_thread(
         _insert_customer_sync,
         supabase,
-        {"external_ref": external_ref, "name": name},
+        {
+            "external_ref": external_ref,
+            "name": name,
+            "action_taken": None,
+            "slack_updated": False,
+            "follow_up": False,
+            "escalation": False,
+        },
     )
     return created.data["id"]
+
+
+def _fetch_customers_metadata_sync(supabase: Client, external_refs: Sequence[str]):
+    return (
+        supabase
+        .table(CUSTOMERS_TABLE)
+        .select("id, external_ref, action_taken, slack_updated, follow_up, escalation")
+        .in_("external_ref", list(external_refs))
+        .execute()
+    )
+
+
+async def fetch_customers_metadata(supabase: Client, external_refs: Sequence[str]) -> Dict[str, Dict[str, Any]]:
+    if not external_refs:
+        return {}
+    resp = await asyncio.to_thread(_fetch_customers_metadata_sync, supabase, external_refs)
+    rows = resp.data or []
+    return {row["external_ref"]: row for row in rows if row.get("external_ref")}
 
 
 def _insert_invoice_sync(supabase: Client, payload: Dict[str, Any]):
@@ -133,4 +171,5 @@ __all__ = [
     "get_or_create_customer_id",
     "insert_invoice",
     "list_invoices",
+    "fetch_customers_metadata",
 ]

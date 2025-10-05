@@ -9,7 +9,11 @@ from fastapi.responses import RedirectResponse, JSONResponse
 
 from ..config import settings
 from ..aging import simplify_ar_aging
-from ..qbo_store import fetch_connection, upsert_connection
+from ..qbo_store import (
+    fetch_connection,
+    fetch_customers_metadata,
+    upsert_connection,
+)
 from . import deps
 
 AUTH_BASE = "https://appcenter.intuit.com/connect/oauth2"
@@ -298,6 +302,15 @@ async def qbo_ar_aging_detail_simplified(
     try:
         raw = await qbo_report(user_id, supabase, "AgedReceivableDetail", params=params)
         summary = simplify_ar_aging(raw)
+        external_refs = [row.get("external_ref") for row in summary["rows"] if row.get("external_ref")]
+        metadata = await fetch_customers_metadata(supabase, external_refs)
+        for row in summary["rows"]:
+            meta = metadata.get(row.get("external_ref")) if row.get("external_ref") else None
+            row["customer_id"] = meta.get("id") if meta else None
+            row["action_taken"] = meta.get("action_taken") if meta else None
+            row["slack_updated"] = bool(meta.get("slack_updated")) if meta and meta.get("slack_updated") is not None else False
+            row["follow_up"] = bool(meta.get("follow_up")) if meta and meta.get("follow_up") is not None else False
+            row["escalation"] = bool(meta.get("escalation")) if meta and meta.get("escalation") is not None else False
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
     except RuntimeError as e:

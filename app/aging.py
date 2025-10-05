@@ -36,6 +36,7 @@ BUCKET_ACTION: Dict[BucketKey, str] = {
 @dataclass
 class AgingTransaction:
     customer: str
+    customer_ref: Optional[str]
     doc_num: Optional[str]
     txn_type: str
     due_date: Optional[datetime]
@@ -116,23 +117,39 @@ def _extract_transactions(report: Dict[str, Any]) -> Iterable[AgingTransaction]:
                 continue
             data = entry.get("ColData", [])
 
-            def get_col(key: str) -> Optional[str]:
+            def get_col_entry(key: str) -> Optional[Dict[str, Any]]:
                 position = idx.get(key)
-                if position is None:
+                if position is None or position >= len(data):
                     return None
-                if position >= len(data):
-                    return None
-                return data[position].get("value")
+                entry = data[position]
+                if isinstance(entry, dict):
+                    return entry
+                return None
 
-            txn_type = get_col("txn_type") or ""
-            customer_raw = get_col("cust_name") or "Unknown"
+            def get_col_value(key: str) -> Optional[str]:
+                col = get_col_entry(key)
+                if not col:
+                    return None
+                value = col.get("value")
+                return str(value) if value is not None else None
+
+            def get_col_id(key: str) -> Optional[str]:
+                col = get_col_entry(key)
+                if not col:
+                    return None
+                ident = col.get("id")
+                return str(ident) if ident is not None else None
+
+            txn_type = get_col_value("txn_type") or ""
+            customer_raw = get_col_value("cust_name") or "Unknown"
             customer = _clean_customer_name(customer_raw)
-            doc_num = get_col("doc_num")
-            open_balance = _safe_decimal(get_col("subt_open_bal") or 0)
+            doc_num = get_col_value("doc_num")
+            customer_ref = get_col_id("cust_name")
+            open_balance = _safe_decimal(get_col_value("subt_open_bal") or 0)
             if open_balance == 0:
                 continue
 
-            due_date = _parse_date(get_col("due_date"))
+            due_date = _parse_date(get_col_value("due_date"))
             days_past_due = 0
             if due_date is not None:
                 days_past_due = (report_date.date() - due_date.date()).days
@@ -141,6 +158,7 @@ def _extract_transactions(report: Dict[str, Any]) -> Iterable[AgingTransaction]:
 
             yield AgingTransaction(
                 customer=customer,
+                customer_ref=customer_ref,
                 doc_num=doc_num,
                 txn_type=txn_type,
                 due_date=due_date,
@@ -156,11 +174,12 @@ def simplify_ar_aging(report: Dict[str, Any]) -> Dict[str, Any]:
     customers: Dict[str, Dict[str, Any]] = {}
 
     for txn in _extract_transactions(report):
-        key = _customer_key(txn.customer)
+        key = txn.customer_ref or _customer_key(txn.customer)
         record = customers.setdefault(
             key,
             {
                 "customer": txn.customer,
+                "external_ref": txn.customer_ref,
                 "total_balance": Decimal("0"),
                 "buckets": {bucket: Decimal("0") for bucket in BUCKET_ORDER},
                 "positive_transactions": [],
@@ -179,6 +198,8 @@ def simplify_ar_aging(report: Dict[str, Any]) -> Dict[str, Any]:
         # prefer human-friendly casing from the first positive transaction
         if record["customer"] != txn.customer and record["positive_transactions"]:
             record["customer"] = record["positive_transactions"][0].customer
+        if not record["external_ref"] and txn.customer_ref:
+            record["external_ref"] = txn.customer_ref
 
     output: List[Dict[str, Any]] = []
 
@@ -224,6 +245,7 @@ def simplify_ar_aging(report: Dict[str, Any]) -> Dict[str, Any]:
         output.append(
             {
                 "customer": record["customer"],
+                "external_ref": record.get("external_ref"),
                 "total_balance": float(total_balance),
                 "buckets": bucket_output,
                 "credits": float(record["credits"]),
