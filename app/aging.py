@@ -216,13 +216,17 @@ def simplify_ar_aging(report: Dict[str, Any]) -> Dict[str, Any]:
                 "amount": float(oldest_txn.amount),
             }
 
+        bucket_output = {k: float(v) for k, v in record["buckets"].items()}
+        if recommended_bucket:
+            bucket_output = {key: 0.0 for key in BUCKET_ORDER}
+            bucket_output[recommended_bucket] = float(total_balance)
+
         output.append(
             {
                 "customer": record["customer"],
                 "total_balance": float(total_balance),
-                "buckets": {k: float(v) for k, v in record["buckets"].items()},
+                "buckets": bucket_output,
                 "credits": float(record["credits"]),
-                "recommended_bucket": recommended_bucket,
                 "recommended_action": recommended_action,
                 "oldest_invoice": oldest_invoice_info,
             }
