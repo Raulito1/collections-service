@@ -20,6 +20,7 @@ class InvoiceRead(InvoiceCreate):
 class CustomerStatusUpdate(BaseModel):
     customer_id: Optional[UUID] = None
     external_ref: Optional[str] = None
+    customer_name: Optional[str] = None
     action_taken: Optional[str] = None
     slack_updated: Optional[bool] = None
     follow_up: Optional[bool] = None

@@ -329,6 +329,7 @@ async def qbo_update_customer_status(
     customer_uuid = body.pop("customer_id", None)
     customer_id = str(customer_uuid) if customer_uuid is not None else None
     external_ref = body.pop("external_ref", None)
+    customer_name = body.pop("customer_name", None)
 
     updates = {k: body.get(k) for k in ("action_taken", "slack_updated", "follow_up", "escalation") if k in body}
     if not updates:
@@ -339,6 +340,7 @@ async def qbo_update_customer_status(
             supabase,
             customer_id=customer_id,
             external_ref=external_ref,
+            customer_name=customer_name,
             **updates,
         )
     except ValueError as exc:

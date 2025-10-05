@@ -156,6 +156,7 @@ async def update_customer_status(
     *,
     customer_id: Optional[str] = None,
     external_ref: Optional[str] = None,
+    customer_name: Optional[str] = None,
     **fields: Any,
 ) -> None:
     updates = {k: v for k, v in fields.items() if k in {"action_taken", "slack_updated", "follow_up", "escalation"}}
@@ -164,7 +165,10 @@ async def update_customer_status(
     if customer_id:
         await asyncio.to_thread(_update_customer_sync, supabase, customer_id, updates)
     elif external_ref:
-        await asyncio.to_thread(_update_customer_by_ref_sync, supabase, external_ref, updates)
+        # ensure a customer row exists so UI-only updates work without a sync pass
+        ensured_name = customer_name or external_ref
+        ensured_id = await get_or_create_customer_id(supabase, external_ref, ensured_name)
+        await asyncio.to_thread(_update_customer_sync, supabase, ensured_id, updates)
     else:
         raise ValueError("customer_id or external_ref is required to update customer status")
 
