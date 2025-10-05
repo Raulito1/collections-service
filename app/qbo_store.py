@@ -113,8 +113,8 @@ def _update_customer_by_ref_sync(supabase: Client, external_ref: str, payload: D
 
 async def get_or_create_customer_id(supabase: Client, external_ref: str, name: str) -> str:
     existing = await asyncio.to_thread(_select_customer_sync, supabase, external_ref)
-    if existing.data:
-        record = existing.data
+    if existing and existing.data:
+        record = existing.data[0] if isinstance(existing.data, list) else existing.data
         if record.get("name") != name:
             await asyncio.to_thread(_update_customer_sync, supabase, record["id"], {"name": name})
         return record["id"]
@@ -130,7 +130,14 @@ async def get_or_create_customer_id(supabase: Client, external_ref: str, name: s
             "escalation": False,
         },
     )
-    return created.data["id"]
+    if not created or created.data is None:
+        raise RuntimeError("Failed to create customer record")
+    data = created.data
+    if isinstance(data, list):
+        data = data[0] if data else None
+    if not data or "id" not in data:
+        raise RuntimeError("Failed to create customer record")
+    return data["id"]
 
 
 def _fetch_customers_metadata_sync(supabase: Client, external_refs: Sequence[str]):

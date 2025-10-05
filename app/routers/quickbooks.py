@@ -345,5 +345,7 @@ async def qbo_update_customer_status(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return JSONResponse({"ok": True})
