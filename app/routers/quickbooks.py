@@ -12,8 +12,10 @@ from ..aging import simplify_ar_aging
 from ..qbo_store import (
     fetch_connection,
     fetch_customers_metadata,
+    update_customer_status,
     upsert_connection,
 )
+from ..schemas import CustomerStatusUpdate
 from . import deps
 
 AUTH_BASE = "https://appcenter.intuit.com/connect/oauth2"
@@ -316,3 +318,30 @@ async def qbo_ar_aging_detail_simplified(
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return JSONResponse(summary)
+
+
+@router.patch("/qbo/customers/status")
+async def qbo_update_customer_status(
+    payload: CustomerStatusUpdate,
+    supabase=Depends(deps.get_supabase),
+):
+    body = payload.dict(exclude_unset=True)
+    customer_uuid = body.pop("customer_id", None)
+    customer_id = str(customer_uuid) if customer_uuid is not None else None
+    external_ref = body.pop("external_ref", None)
+
+    updates = {k: body.get(k) for k in ("action_taken", "slack_updated", "follow_up", "escalation") if k in body}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No status fields provided")
+
+    try:
+        await update_customer_status(
+            supabase,
+            customer_id=customer_id,
+            external_ref=external_ref,
+            **updates,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return JSONResponse({"ok": True})

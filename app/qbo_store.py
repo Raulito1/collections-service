@@ -101,6 +101,16 @@ def _update_customer_sync(supabase: Client, customer_id: str, payload: Dict[str,
     )
 
 
+def _update_customer_by_ref_sync(supabase: Client, external_ref: str, payload: Dict[str, Any]):
+    return (
+        supabase
+        .table(CUSTOMERS_TABLE)
+        .update(payload)
+        .eq("external_ref", external_ref)
+        .execute()
+    )
+
+
 async def get_or_create_customer_id(supabase: Client, external_ref: str, name: str) -> str:
     existing = await asyncio.to_thread(_select_customer_sync, supabase, external_ref)
     if existing.data:
@@ -141,6 +151,24 @@ async def fetch_customers_metadata(supabase: Client, external_refs: Sequence[str
     return {row["external_ref"]: row for row in rows if row.get("external_ref")}
 
 
+async def update_customer_status(
+    supabase: Client,
+    *,
+    customer_id: Optional[str] = None,
+    external_ref: Optional[str] = None,
+    **fields: Any,
+) -> None:
+    updates = {k: v for k, v in fields.items() if k in {"action_taken", "slack_updated", "follow_up", "escalation"}}
+    if not updates:
+        return
+    if customer_id:
+        await asyncio.to_thread(_update_customer_sync, supabase, customer_id, updates)
+    elif external_ref:
+        await asyncio.to_thread(_update_customer_by_ref_sync, supabase, external_ref, updates)
+    else:
+        raise ValueError("customer_id or external_ref is required to update customer status")
+
+
 def _insert_invoice_sync(supabase: Client, payload: Dict[str, Any]):
     return supabase.table(INVOICES_TABLE).insert(payload).execute()
 
@@ -172,4 +200,5 @@ __all__ = [
     "insert_invoice",
     "list_invoices",
     "fetch_customers_metadata",
+    "update_customer_status",
 ]
