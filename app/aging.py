@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 
 BucketKey = str
@@ -93,6 +93,60 @@ def _customer_key(name: str) -> str:
     return " ".join(name.split()).casefold()
 
 
+def _aggregate_customer_records(records: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Collapse customer entries that share the same canonicalized name.
+
+    This is useful when QuickBooks jobs (e.g., ``Customer:Job``) appear as distinct customers
+    even though we want to treat them as one consolidated account for reporting.
+    """
+    aggregated: Dict[str, Dict[str, Any]] = {}
+    for record in records:
+        canonical = _customer_key(record["customer"])
+        group = aggregated.get(canonical)
+        if group is None:
+            group = {
+                "customer": record["customer"],
+                "external_ref": None,
+                "total_balance": Decimal("0"),
+                "buckets": {bucket: Decimal("0") for bucket in BUCKET_ORDER},
+                "positive_transactions": [],
+                "credits": Decimal("0"),
+                "external_refs": set(),
+            }
+            aggregated[canonical] = group
+
+        group["total_balance"] += record["total_balance"]
+        for bucket, amount in record["buckets"].items():
+            group["buckets"][bucket] += amount
+        group["positive_transactions"].extend(record["positive_transactions"])
+        group["credits"] += record["credits"]
+
+        ref = record.get("external_ref")
+        if ref:
+            refs: Set[str] = group["external_refs"]
+            refs.add(ref)
+
+        if group["customer"] != record["customer"]:
+            if len(record["customer"]) > len(group["customer"]):
+                group["customer"] = record["customer"]
+
+    result: List[Dict[str, Any]] = []
+    for group in aggregated.values():
+        result.append(
+            {
+                "customer": group["customer"],
+                "external_ref": None,
+                "total_balance": group["total_balance"],
+                "buckets": {bucket: amount for bucket, amount in group["buckets"].items()},
+                "positive_transactions": list(group["positive_transactions"]),
+                "credits": group["credits"],
+                "external_refs": sorted(group["external_refs"]),
+            }
+        )
+    return result
+
+
 def _extract_transactions(report: Dict[str, Any]) -> Iterable[AgingTransaction]:
     header = report.get("Header", {})
     report_date: Optional[datetime] = None
@@ -168,7 +222,7 @@ def _extract_transactions(report: Dict[str, Any]) -> Iterable[AgingTransaction]:
             )
 
 
-def simplify_ar_aging(report: Dict[str, Any]) -> Dict[str, Any]:
+def simplify_ar_aging(report: Dict[str, Any], *, aggregate_customers: bool = False) -> Dict[str, Any]:
     """Convert QuickBooks report payload into collections-ready summary."""
 
     customers: Dict[str, Dict[str, Any]] = {}
@@ -205,7 +259,13 @@ def simplify_ar_aging(report: Dict[str, Any]) -> Dict[str, Any]:
 
     bucket_rank = {bucket: idx for idx, bucket in enumerate(BUCKET_ORDER)}
 
-    for record in customers.values():
+    records: List[Dict[str, Any]]
+    if aggregate_customers:
+        records = _aggregate_customer_records(customers.values())
+    else:
+        records = list(customers.values())
+
+    for record in records:
         total_balance = record["total_balance"]
         if total_balance <= 0:
             continue
@@ -225,6 +285,7 @@ def simplify_ar_aging(report: Dict[str, Any]) -> Dict[str, Any]:
         recommended_bucket: Optional[BucketKey] = None
         recommended_action: Optional[str] = None
         oldest_invoice_info: Optional[Dict[str, Any]] = None
+        external_ref = record.get("external_ref")
 
         if oldest_txn is not None and oldest_txn.amount > 0:
             recommended_bucket = oldest_txn.bucket
@@ -236,23 +297,31 @@ def simplify_ar_aging(report: Dict[str, Any]) -> Dict[str, Any]:
                 "days_past_due": oldest_txn.days_past_due,
                 "amount": float(oldest_txn.amount),
             }
+            if oldest_txn.customer_ref:
+                external_ref = oldest_txn.customer_ref
 
         bucket_output = {k: float(v) for k, v in record["buckets"].items()}
         if recommended_bucket:
             bucket_output = {key: 0.0 for key in BUCKET_ORDER}
             bucket_output[recommended_bucket] = float(total_balance)
 
-        output.append(
-            {
-                "customer": record["customer"],
-                "external_ref": record.get("external_ref"),
-                "total_balance": float(total_balance),
-                "buckets": bucket_output,
-                "credits": float(record["credits"]),
-                "recommended_action": recommended_action,
-                "oldest_invoice": oldest_invoice_info,
-            }
-        )
+        row = {
+            "customer": record["customer"],
+            "external_ref": external_ref,
+            "total_balance": float(total_balance),
+            "buckets": bucket_output,
+            "credits": float(record["credits"]),
+            "recommended_action": recommended_action,
+            "oldest_invoice": oldest_invoice_info,
+        }
+
+        if aggregate_customers:
+            refs = record.get("external_refs", [])
+            if not refs and external_ref:
+                refs = [external_ref]
+            row["external_refs"] = refs
+
+        output.append(row)
 
     # sort by largest total balance desc
     output.sort(key=lambda item: item["total_balance"], reverse=True)

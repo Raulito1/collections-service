@@ -1,0 +1,14 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+# Editor-based HTTP Client requests
+/httpRequests/
+
+# JetBrains IDEs specific files
+/.idea_modules/
+aws.xml
+collections-service.iml
+copilot.data.migration.agent.xml
+misc.xml
+modules.xml
+vcs.xml

@@ -285,6 +285,10 @@ async def qbo_ar_aging_detail_simplified(
         None,
         description="Comma-separated list of columns to include. See QBO docs for allowed values.",
     ),
+    aggregate_customers: bool = Query(
+        False,
+        description="Group QuickBooks jobs by their parent customer and report them in the oldest bucket only.",
+    ),
 ):
     """
     Returns a policy-aware collections summary derived from the QBO aging detail report.
@@ -303,7 +307,7 @@ async def qbo_ar_aging_detail_simplified(
 
     try:
         raw = await qbo_report(user_id, supabase, "AgedReceivableDetail", params=params)
-        summary = simplify_ar_aging(raw)
+        summary = simplify_ar_aging(raw, aggregate_customers=aggregate_customers)
         external_refs = [row.get("external_ref") for row in summary["rows"] if row.get("external_ref")]
         metadata = await fetch_customers_metadata(supabase, external_refs)
         for row in summary["rows"]:
